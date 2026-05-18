@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Banknote, CreditCard } from 'lucide-react';
 import api from '../../api/axios';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
@@ -14,6 +15,9 @@ export default function BookRental() {
   const [selectedDriver, setSelectedDriver] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('');
+  const [processingPayment, setProcessingPayment] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -49,23 +53,57 @@ export default function BookRental() {
       toast.error('End date must be after start date');
       return;
     }
+    setShowPaymentModal(true);
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!selectedPaymentMethod) {
+      return;
+    }
+    setProcessingPayment(true);
     try {
-      await api.post('/rentals', {
+      const rentalPayload = {
         customer_id: user?.id,
         driver_id: parseInt(selectedDriver),
         vehicle_id: parseInt(selectedVehicle),
         start_date: startDate,
         end_date: endDate,
         total_cost: totalCost,
+      };
+      const rentalRes = await api.post('/rentals', rentalPayload);
+      const rentalId = rentalRes?.data?.id;
+
+      await api.post('/payments', {
+        rental_id: rentalId,
+        amount_paid: totalCost,
+        payment_method: selectedPaymentMethod,
+        transaction_id: `TXN${Date.now()}`,
       });
-      toast.success('Rental booked successfully!');
+
+      await api.post('/receipts', {
+        rental_id: rentalId,
+        receipt_number: `RCP-${Date.now()}`,
+        base_cost: totalCost,
+        late_fee: 0,
+        final_total: totalCost,
+        is_voided: false,
+      });
+
       setSelectedVehicle('');
       setSelectedDriver('');
       setStartDate('');
       setEndDate('');
+      setSelectedPaymentMethod('');
+      setShowPaymentModal(false);
+      toast.success('Booking confirmed!');
+      setTimeout(() => {
+        window.location.href = '/customer/rentals';
+      }, 1500);
     } catch (err) {
       console.error(err);
       toast.error(err.response?.data?.message || 'Booking failed');
+    } finally {
+      setProcessingPayment(false);
     }
   };
 
@@ -178,12 +216,12 @@ export default function BookRental() {
                       fontSize: '12px',
                       lineHeight: '1.6',
                     }}>
-                      The full rental cost of <strong style={{color:'white'}}>${totalCost}</strong> is
+                      The full rental cost of <strong style={{ color: 'white' }}>${totalCost}</strong> is
                       charged based on your selected rental period.
                       Early returns do not qualify for a refund -
                       the base cost remains the same regardless of
                       when the vehicle is returned. Additional
-                      <strong style={{color:'#f59e0b'}}> late fees</strong> may
+                      <strong style={{ color: '#f59e0b' }}> late fees</strong> may
                       apply if the vehicle is returned after the end date.
                     </p>
                   </div>
@@ -265,6 +303,103 @@ export default function BookRental() {
           </div>
         </aside>
       </div>
+
+      {showPaymentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.7)' }}>
+          <div
+            className="w-full"
+            style={{
+              background: '#1a1a1a',
+              border: '1px solid #2a2a2a',
+              borderRadius: '16px',
+              padding: '32px',
+              maxWidth: '420px',
+            }}
+          >
+            <h2 className="font-syne text-2xl font-bold text-white">Select Payment Method</h2>
+            <p className="mt-1 text-sm text-white/40">Choose how you&apos;d like to pay</p>
+
+            <div className="mt-6 space-y-3">
+              <button
+                type="button"
+                onClick={() => setSelectedPaymentMethod('Cash')}
+                className="w-full rounded-xl border p-4 text-left transition-all"
+                style={{
+                  background: '#111',
+                  borderColor: selectedPaymentMethod === 'Cash' ? '#f59e0b' : '#2a2a2a',
+                  boxShadow: selectedPaymentMethod === 'Cash' ? '0 0 24px rgba(245,158,11,0.2)' : 'none',
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <Banknote size={22} color={selectedPaymentMethod === 'Cash' ? '#f59e0b' : '#9ca3af'} />
+                  <div>
+                    <p className="font-syne text-lg text-white">Cash</p>
+                    <p className="text-sm text-white/40">Pay at pickup</p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedPaymentMethod('Credit Card')}
+                className="w-full rounded-xl border p-4 text-left transition-all"
+                style={{
+                  background: '#111',
+                  borderColor: selectedPaymentMethod === 'Credit Card' ? '#f59e0b' : '#2a2a2a',
+                  boxShadow: selectedPaymentMethod === 'Credit Card' ? '0 0 24px rgba(245,158,11,0.2)' : 'none',
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <CreditCard size={22} color={selectedPaymentMethod === 'Credit Card' ? '#f59e0b' : '#9ca3af'} />
+                  <div>
+                    <p className="font-syne text-lg text-white">Credit Card</p>
+                    <p className="text-sm text-white/40">Pay securely online</p>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-xl border border-[#2a2a2a] bg-[#111] p-4">
+              <p className="text-xs text-white/35">Vehicle</p>
+              <p className="text-sm text-white">{vehicle ? `${vehicle.brand} ${vehicle.model}` : '-'}</p>
+              <p className="mt-2 text-xs text-white/35">Rental Period</p>
+              <p className="text-sm text-white">{startDate} - {endDate}</p>
+              <p className="mt-2 text-xs text-white/35">Days</p>
+              <p className="text-sm text-white">{days}</p>
+              <p className="mt-2 text-xs text-white/35">Total</p>
+              <p className="font-syne text-xl font-extrabold text-[#f59e0b]">${totalCost}</p>
+            </div>
+
+            <p className="mt-4 text-xs text-white/45">⚠️ Full amount charged regardless of early return</p>
+
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (processingPayment) return;
+                  setShowPaymentModal(false);
+                  setSelectedPaymentMethod('');
+                }}
+                className="rounded-lg border border-[#2a2a2a] bg-transparent px-4 py-3 text-sm font-semibold text-white/80 transition-colors hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!selectedPaymentMethod || processingPayment}
+                onClick={handleConfirmPayment}
+                className="rounded-lg px-4 py-3 text-sm font-bold transition-colors"
+                style={{
+                  background: !selectedPaymentMethod || processingPayment ? '#4b5563' : '#f59e0b',
+                  color: !selectedPaymentMethod || processingPayment ? 'rgba(255,255,255,0.75)' : '#111',
+                }}
+              >
+                {processingPayment ? 'Processing...' : 'Confirm Payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

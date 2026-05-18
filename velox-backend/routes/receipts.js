@@ -38,6 +38,21 @@ router.get('/:rentalId', async (req, res) => {
   res.json(rows[0]);
 });
 
+router.post('/', async (req, res) => {
+  try {
+    const { rental_id, receipt_number, base_cost, late_fee, final_total, is_voided } = req.body;
+    const [result] = await db.query(
+      `INSERT INTO receipts
+       (rental_id, receipt_number, base_cost, late_fee, final_total, is_voided)
+       VALUES (?,?,?,?,?,?)`,
+      [rental_id, receipt_number, base_cost, late_fee, final_total, is_voided || false]
+    );
+    res.json({ id: result.insertId, message: 'Receipt created' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.put('/:id/late-fee', async (req, res) => {
   const amount = Number(req.body.amount ?? req.body.late_fee ?? 0);
   if (Number.isNaN(amount) || amount < 0) {
